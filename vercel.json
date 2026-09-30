@@ -1,0 +1,8 @@
+{
+  "framework": null,
+  "outputDirectory": "public",
+  "regions": ["cdg1"],
+  "functions": {
+    "api/relais.py": { "maxDuration": 30 }
+  }
+}

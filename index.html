@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="fr" data-profil="droit">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Vigie</title>
+  <meta name="description" content="Les offres d'emploi d'Île-de-France qui vous concernent, en temps réel.">
+  <meta name="theme-color" content="#F1F2EF" media="(prefers-color-scheme: light)">
+  <meta name="theme-color" content="#131619" media="(prefers-color-scheme: dark)">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-title" content="Vigie">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="format-detection" content="telephone=no">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="apple-touch-icon" href="icone-180.png">
+  <link rel="icon" type="image/png" href="icone-192.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,800&family=Figtree:wght@400;500;600;700&display=swap">
+  <link rel="stylesheet" href="styles.css">
+  <script type="module" src="app.js"></script>
+</head>
+<body>
+
+<!-- ── Démarrage ─────────────────────────────────────────────── -->
+<div id="demarrage" class="ecran-plein centre">
+  <p class="marque marque-grande">Vigie</p>
+  <span class="roue" aria-label="Chargement"></span>
+</div>
+
+<!-- ── Erreur de configuration ou de réseau ─────────────────── -->
+<section id="ecran-erreur" class="ecran-plein" hidden>
+  <p class="marque marque-grande">Vigie</p>
+  <h1 id="erreur-titre" class="titre-ecran"></h1>
+  <div id="erreur-texte" class="texte-ecran"></div>
+  <button class="bouton-plein" id="btn-reessayer" type="button">Réessayer</button>
+</section>
+
+<!-- ── Connexion ─────────────────────────────────────────────── -->
+<section id="ecran-connexion" class="ecran-plein" hidden>
+  <p class="marque marque-grande">Vigie</p>
+  <p class="texte-ecran">Les offres d'emploi d'Île-de-France qui vous concernent, lues en direct sur les sites qui recrutent.</p>
+  <form id="form-connexion" class="formulaire" novalidate>
+    <label>Adresse e-mail
+      <input type="email" id="email" autocomplete="username" inputmode="email" required>
+    </label>
+    <label>Mot de passe
+      <input type="password" id="mdp" autocomplete="current-password" required>
+    </label>
+    <p id="connexion-erreur" class="message-erreur" hidden></p>
+    <button class="bouton-plein" type="submit" id="btn-connexion">Se connecter</button>
+    <button class="bouton-lien" type="button" id="btn-mdp-oublie">Mot de passe oublié</button>
+  </form>
+</section>
+
+<!-- ── Premier lancement : choix du domaine ─────────────────── -->
+<section id="ecran-profil" class="ecran-plein" hidden>
+  <p class="marque marque-grande">Vigie</p>
+  <h1 class="titre-ecran">Quel est votre domaine ?</h1>
+  <p class="texte-ecran">Vigie prépare vos secteurs et vos sites. Tout reste modifiable ensuite dans Réglages.</p>
+  <div class="choix-profils">
+    <button class="choix-profil" data-profil="droit" type="button">
+      <span class="choix-nom">Droit &amp; RH</span>
+      <span class="choix-detail">Droit du travail, RH, droit des affaires, droit pénal. Village de la Justice, Carrières Juridiques, Cadremploi, France Travail, Adzuna.</span>
+    </button>
+    <button class="choix-profil" data-profil="tech" type="button">
+      <span class="choix-nom">Finance &amp; Tech</span>
+      <span class="choix-detail">Big Tech et finance de marché. OpenAI, Anthropic, Google, Apple, Qube RT, CFM, Citadel, JPMorgan, Welcome to the Jungle…</span>
+    </button>
+  </div>
+</section>
+
+<!-- ── Application ───────────────────────────────────────────── -->
+<div id="app" hidden>
+  <header class="entete">
+    <div class="entete-texte">
+      <p class="marque">Vigie</p>
+      <p class="entete-statut"><span id="nom-profil"></span><span id="statut-maj"></span></p>
+    </div>
+    <button class="bouton-rond" id="btn-actualiser" type="button" aria-label="Actualiser les offres">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M20 11a8 8 0 1 0-2.3 5.7M20 4v7h-7"/></svg>
+    </button>
+    <div class="progression" id="progression" aria-hidden="true"><span></span></div>
+  </header>
+
+  <main>
+    <!-- Offres -->
+    <section id="vue-offres" class="vue">
+      <div class="secteurs" id="secteurs" role="group" aria-label="Secteur"></div>
+
+      <div class="ligne-recherche">
+        <input type="search" id="filtre-texte" placeholder="Filtrer les offres" aria-label="Filtrer par intitulé, entreprise ou ville" enterkeyhint="search">
+        <button class="bouton-contour" id="btn-filtres" type="button" aria-expanded="false" aria-controls="panneau-filtres">
+          Filtres<b id="nb-filtres" hidden></b>
+        </button>
+      </div>
+
+      <div id="panneau-filtres" class="panneau-filtres" hidden>
+        <p class="filtres-titre">Type de contrat</p>
+        <div id="filtres-contrat" class="puces"></div>
+        <p class="filtres-titre">Provenance</p>
+        <div id="filtres-sources" class="puces"></div>
+        <p class="aide">Touchez une étiquette pour masquer ces offres, touchez-la à nouveau pour les réafficher.</p>
+      </div>
+
+      <button id="etat-sites" class="etat-sites" type="button" aria-expanded="false" hidden></button>
+      <div id="liste-etats" class="liste-etats" hidden></div>
+
+      <div id="liste-offres" class="liste"></div>
+
+      <details class="liens-directs" id="liens-directs">
+        <summary>Ouvrir les sites directement</summary>
+        <p class="aide">Pages déjà filtrées sur Paris, utiles quand un site ne répond pas.</p>
+        <div id="liens-directs-liste" class="liens-grille"></div>
+      </details>
+    </section>
+
+    <!-- Favoris -->
+    <section id="vue-favoris" class="vue" hidden>
+      <h1 class="titre-vue">Favoris</h1>
+      <div id="liste-favoris" class="liste"></div>
+    </section>
+
+    <!-- Candidatures -->
+    <section id="vue-candidatures" class="vue" hidden>
+      <h1 class="titre-vue">Candidatures</h1>
+      <div id="liste-candidatures"></div>
+    </section>
+
+    <!-- Réglages -->
+    <section id="vue-reglages" class="vue" hidden>
+      <h1 class="titre-vue">Réglages</h1>
+
+      <h2 class="titre-section">Mes secteurs</h2>
+      <p class="aide">Chaque secteur a ses mots-clés, séparés par des virgules, et les familles de sites à interroger.</p>
+      <div id="editeur-secteurs"></div>
+      <div class="rangee-boutons">
+        <button class="bouton-contour" id="btn-ajout-secteur" type="button">Ajouter un secteur</button>
+        <button class="bouton-plein" id="btn-enregistrer-secteurs" type="button">Enregistrer</button>
+      </div>
+
+      <h2 class="titre-section">Sites interrogés</h2>
+      <div id="editeur-sites"></div>
+
+      <h2 class="titre-section">Compte</h2>
+      <p class="aide" id="compte-email"></p>
+      <div class="rangee-boutons">
+        <button class="bouton-contour" id="btn-deconnexion" type="button">Se déconnecter</button>
+        <button class="bouton-lien" id="btn-changer-profil" type="button">Changer de domaine</button>
+      </div>
+    </section>
+  </main>
+
+  <nav class="barre-onglets" aria-label="Navigation">
+    <button class="onglet actif" data-vue="offres" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="11" cy="11" r="6.5"/><path d="M16 16l4.5 4.5"/></svg>
+      <span>Offres</span>
+    </button>
+    <button class="onglet" data-vue="favoris" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3.5l2.6 5.3 5.8.8-4.2 4.1 1 5.8L12 16.8l-5.2 2.7 1-5.8-4.2-4.1 5.8-.8z"/></svg>
+      <span>Favoris</span>
+    </button>
+    <button class="onglet" data-vue="candidatures" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="4" y="3.5" width="16" height="17" rx="2.5"/><path d="M8 9h8M8 13h8M8 17h5"/></svg>
+      <span>Candidatures</span><b class="pastille" id="pastille-candidatures" hidden></b>
+    </button>
+    <button class="onglet" data-vue="reglages" type="button">
+      <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 7h10M18 7h2M4 17h4M12 17h8"/><circle cx="16" cy="7" r="2"/><circle cx="10" cy="17" r="2"/></svg>
+      <span>Réglages</span>
+    </button>
+  </nav>
+</div>
+
+<div id="toast" role="status" aria-live="polite" hidden></div>
+</body>
+</html>
