@@ -379,7 +379,7 @@ function planDeLecture() {
     for (const c of Object.values(etat.catalogue)) {
       if (!(s.groupes || []).includes(c.groupe) || eteints.has(c.id)) continue;
       if (!plan.has(c.id)) plan.set(c.id, new Set());
-      if (c.mots) (s.mots || []).forEach((m) => plan.get(c.id).add(m));
+      (s.mots || []).forEach((m) => plan.get(c.id).add(m));
     }
   }
   return [...plan].map(([id, mots]) => ({ id, mots: [...mots].slice(0, 12) }));
@@ -910,7 +910,7 @@ function dessinerReglages() {
     return `<p class="famille-sites">${echappe(noms[g] || g)}</p><div>` + sites.map((c) => `
       <label class="site-ligne">
         <span>${echappe(c.nom)}
-          <span class="note">${c.cle_manquante ? "Clé à ajouter dans Vercel (voir le guide)" : c.mots ? "Recherche par vos mots-clés" : "Toutes ses offres à Paris"}</span>
+          <span class="note">${c.cle_manquante ? "Clé à ajouter dans Vercel (voir le guide)" : c.mots ? "Recherche par vos mots-clés" : "Postes tech et quant à Paris, et vos mots-clés"}</span>
         </span>
         <input class="interrupteur" type="checkbox" data-site="${c.id}" ${eteints.has(c.id) ? "" : "checked"}>
       </label>`).join("") + "</div>";

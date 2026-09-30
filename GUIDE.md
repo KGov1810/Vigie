@@ -112,6 +112,16 @@ Les clés restent sur le relais et ne sont jamais envoyées au téléphone.
 - Modifiez vos secteurs, leurs mots-clés (séparés par des virgules) et les familles de sites interrogées, puis touchez **Enregistrer**.
 - Activez ou désactivez chaque site individuellement.
 
+**Bien écrire ses mots-clés (profil Droit & RH).** Vigie juge chaque offre sur son intitulé, pas sur sa description, où trop de mots apparaissent par hasard.
+- Sur les sites généralistes (France Travail, Adzuna, Cadremploi), l'intitulé doit contenir le métier et la spécialité d'un mot-clé : « juriste » et « travail » pour « juriste droit du travail ». Le mot « droit » est facultatif, et « RH » vaut « ressources humaines ».
+- Sur les sites juridiques, où toutes les annonces sont déjà juridiques, la spécialité suffit : « Avocat collaborateur droit social » apparaît pour « juriste droit social ».
+- Pour voir un autre type de poste, ajoutez son mot-clé, par exemple « chargé de recrutement » ou « gestionnaire paie ».
+
+**Sites carrières (profil Finance & Tech).** OpenAI, Google, Qube RT, JPMorgan et les autres publient tous leurs postes parisiens, y compris RH, commercial ou marketing.
+- Vigie n'en garde que les postes techniques et quantitatifs : ingénieur, développeur, data, recherche, quant, trader, risque…
+- Les fonctions non techniques sont écartées, même quand leur intitulé contient « engineer » (« Technical Recruiter », « Sales Engineer »).
+- Vos mots-clés priment toujours : ajoutez « product manager » ou « sales trader » à un secteur pour voir aussi ces postes.
+
 **Dans le métro** : sans réseau, Vigie affiche les offres de la dernière actualisation et le signale. Au retour du réseau, touchez le bouton d'actualisation.
 
 ---

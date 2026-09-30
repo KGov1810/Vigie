@@ -117,6 +117,137 @@ def offre_pertinente(o, mots_cles, seuil=1.0):
     return False
 
 
+# --------------------------------------------------------------------------
+# Pertinence des offres Droit & RH : on juge l'INTITULÉ du poste.
+# Les descriptions des sites généralistes citent trop de mots au hasard
+# (« prise en charge », « gestion », « direction des ressources humaines »,
+# « siège social »…) : les chercher en vrac laissait passer un dentiste
+# pour « gestionnaire RH ».
+# --------------------------------------------------------------------------
+# Mots qui précisent sans être indispensables : « Juriste social » vaut « juriste droit social ».
+MOTS_SOUPLES = {"droit", "senior", "junior", "confirme", "confirmee", "experimente", "experimentee"}
+# Écritures équivalentes, ramenées à une seule forme avant comparaison.
+EQUIVALENCES = [
+    (re.compile(r"\bressources? humaines?\b"), "rh"),
+    (re.compile(r"\bhuman resources?\b"), "rh"),
+    (re.compile(r"\bhr\b"), "rh"),
+]
+# Mots de métier : sur un site juridique, seule la spécialité départage les annonces.
+METIERS = {
+    "juriste", "avocat", "avocate", "charge", "chargee", "gestionnaire", "assistant", "assistante",
+    "responsable", "stagiaire", "stage", "alternant", "alternante", "alternance", "apprenti", "apprentie",
+    "consultant", "consultante", "directeur", "directrice", "conseiller", "conseillere", "collaborateur",
+    "collaboratrice", "paralegal", "clerc", "notaire", "manager", "specialiste", "expert", "experte",
+    "analyste", "legal", "counsel", "officer",
+}
+
+
+MOTS_VIDES_EN = {"and", "of", "the", "for", "to", "in", "with", "at", "on"}
+
+
+def _jetons(texte):
+    t = normaliser_texte(texte)
+    for motif, forme in EQUIVALENCES:
+        t = motif.sub(forme, t)
+    return [m for m in t.split() if m not in MOTS_VIDES and m not in MOTS_VIDES_EN and len(m) > 1]
+
+
+def _expression_presente(expression, jetons):
+    n = len(expression)
+    return any(all(_meme_mot(expression[k], jetons[i + k]) for k in range(n))
+               for i in range(len(jetons) - n + 1))
+
+
+def _meme_mot(terme, mot):
+    """« penal » retrouve « penaliste », « societes » retrouve « societe » ; « rh » reste exact."""
+    return mot == terme or (len(terme) >= 5 and mot.startswith(terme)) or \
+        (len(terme) >= 7 and mot.startswith(terme[:7]))
+
+
+def _present(terme, mots):
+    return any(_meme_mot(terme, m) for m in mots)
+
+
+def _essentiels(termes):
+    return [t for t in termes if t not in MOTS_SOUPLES] or termes
+
+
+def intitule_pertinent(titre, mots_cles):
+    """Sites généralistes : l'intitulé doit contenir tous les termes essentiels
+    d'au moins un mot-clé, c'est-à-dire le métier ET la spécialité."""
+    mots_titre = set(_jetons(titre))
+    for phrase in mots_cles:
+        essentiels = _essentiels(_jetons(phrase))
+        if essentiels and all(_present(t, mots_titre) for t in essentiels):
+            return True
+    return False
+
+
+def annonce_juridique_pertinente(titre, description, mots_cles):
+    """Sites juridiques : toutes les annonces sont déjà des postes juridiques, on exige la
+    spécialité du mot-clé (« travail », « penal », « rh »…) dans l'intitulé, ou sous forme
+    d'expression suivie dans la description (« droit du travail », jamais des mots épars)."""
+    mots_titre = set(_jetons(titre))
+    desc = _jetons(description)
+    for phrase in mots_cles:
+        termes = _jetons(phrase)
+        if not termes:
+            continue
+        essentiels = _essentiels(termes)
+        specialite = [t for t in essentiels if t not in METIERS] or essentiels
+        if all(_present(t, mots_titre) for t in specialite):
+            return True
+        expression = termes
+        while expression and expression[0] in METIERS:
+            expression = expression[1:]
+        if len(expression) >= 2 and _expression_presente(expression, desc):
+            return True
+    return False
+
+
+# --------------------------------------------------------------------------
+# Pertinence des offres des sites carrières (profil Finance & Tech).
+# Ces sites renvoient TOUS leurs postes à Paris : RH, growth, commercial…
+# On garde les postes techniques et quantitatifs, et tout intitulé qui
+# contient l'un des mots-clés du secteur (vos mots-clés priment toujours).
+# --------------------------------------------------------------------------
+def _expressions(*textes):
+    return [texte.split() for texte in textes]
+
+
+POSTES_TECH = _expressions(
+    "engineer", "engineering", "ingenieur", "ingenieure", "developer", "developpeur", "developpeuse",
+    "devops", "sre", "software", "logiciel", "programmer", "scientist", "researcher", "research",
+    "recherche", "chercheur", "chercheuse", "data", "ml", "ai", "ia", "llm", "nlp", "machine",
+    "python", "c++", "rust", "kernel", "compiler", "gpu", "cuda", "infrastructure", "platform",
+    "backend", "frontend", "fullstack", "cloud", "cybersecurity", "cybersecurite", "security", "securite",
+    "architect", "architecte", "algorithm", "algorithmique", "technical staff",
+)
+POSTES_FINANCE = _expressions(
+    "quant", "quantitatif", "quantitative", "trader", "trading", "portfolio", "structurer", "structuring",
+    "derivatives", "derives", "pricing", "risk", "risque", "strats", "market making", "market maker",
+)
+# Fonctions non techniques : écartées même si l'intitulé contient « engineer » ou « data »
+# (« Technical Recruiter », « Sales Engineer », « HR Data Analyst »).
+FONCTIONS_NON_TECH = _expressions(
+    "rh", "hrbp", "people", "recruiter", "recruiting", "recruitment", "recrutement", "recruteur",
+    "talent", "sourcer", "payroll", "paie", "sales", "vente", "ventes", "commercial", "account",
+    "marketing", "communications", "communication", "legal", "counsel", "juriste", "avocat",
+    "paralegal", "policy", "gtm", "go market", "customer success", "business development",
+    "business partner", "executive assistant", "office manager",
+)
+
+
+def poste_tech_pertinent(titre, groupe, mots_cles):
+    if mots_cles and intitule_pertinent(titre, mots_cles):
+        return True
+    jetons = _jetons(titre)
+    if any(_expression_presente(e, jetons) for e in FONCTIONS_NON_TECH):
+        return False
+    vocabulaire = POSTES_TECH + (POSTES_FINANCE if groupe == "finance" else [])
+    return any(_expression_presente(e, jetons) for e in vocabulaire)
+
+
 def date_iso(valeur):
     """Normalise différentes dates en ISO ; renvoie None si inconnue."""
     if not valeur:
@@ -195,43 +326,57 @@ def source_france_travail(mots, cles):
                 (o.get("typeContrat") or ""),
                 o.get("description", ""),
             )
-            # France Travail élargit la recherche : on écarte les offres
-            # qui ne contiennent pas réellement les termes du mot-clé.
-            if offre_pertinente(candidate, mots):
+            # France Travail élargit la recherche : on ne garde que les intitulés pertinents.
+            if intitule_pertinent(candidate["titre"], mots):
                 resultats.append(candidate)
     return resultats
 
 
+def _adzuna_page(mot, cles, critere):
+    r = requests.get(
+        "https://api.adzuna.com/v1/api/jobs/fr/search/1",
+        params={
+            "app_id": cles["adzuna_id"], "app_key": cles["adzuna_key"],
+            critere: mot, "where": "Ile-de-France", "distance": 40,
+            "results_per_page": 50, "sort_by": "date",
+        },
+        headers=UA, timeout=TIMEOUT,
+    )
+    r.raise_for_status()
+    return r.json().get("results", [])
+
+
+def _adzuna_retenues(resultats, mots):
+    retenues = []
+    for o in resultats:
+        lieu = (o.get("location") or {}).get("display_name", "")
+        if not lieu_en_idf(lieu, strict=True):
+            continue
+        candidate = offre(
+            o.get("id"), o.get("title"),
+            (o.get("company") or {}).get("display_name"),
+            lieu, o.get("redirect_url"), "Adzuna",
+            date_iso(o.get("created")),
+            o.get("contract_type") or o.get("contract_time") or "",
+            o.get("description", ""),
+        )
+        if intitule_pertinent(candidate["titre"], mots):
+            retenues.append(candidate)
+    return retenues
+
+
 def source_adzuna(mots, cles):
-    """Adzuna agrège de nombreux sites d'emploi (Indeed, LinkedIn, sites carrières…)."""
+    """Adzuna agrège de nombreux sites d'emploi (Indeed, LinkedIn, sites carrières…).
+    Sa recherche classique fouille aussi les descriptions et renvoie beaucoup d'offres
+    hors sujet : on cherche d'abord dans les seuls intitulés (title_only), puis, si rien
+    de pertinent ne revient, par la recherche classique. Dans les deux cas, seul
+    l'intitulé décide (intitule_pertinent)."""
     resultats = []
     for mot in mots:
-        r = requests.get(
-            "https://api.adzuna.com/v1/api/jobs/fr/search/1",
-            params={
-                "app_id": cles["adzuna_id"], "app_key": cles["adzuna_key"],
-                "what": mot, "where": "Ile-de-France", "distance": 40,
-                "results_per_page": 30, "sort_by": "date",
-            },
-            headers=UA, timeout=TIMEOUT,
-        )
-        r.raise_for_status()
-        for o in r.json().get("results", []):
-            lieu = (o.get("location") or {}).get("display_name", "")
-            if not lieu_en_idf(lieu, strict=True):
-                continue
-            candidate = offre(
-                o.get("id"), o.get("title"),
-                (o.get("company") or {}).get("display_name"),
-                lieu, o.get("redirect_url"), "Adzuna",
-                date_iso(o.get("created")),
-                o.get("contract_type") or o.get("contract_time") or "",
-                o.get("description", ""),
-            )
-            # Adzuna fait de la recherche « floue » : on écarte les offres
-            # qui ne contiennent pas réellement les termes du mot-clé.
-            if offre_pertinente(candidate, mots):
-                resultats.append(candidate)
+        retenues = _adzuna_retenues(_adzuna_page(mot, cles, "title_only"), mots)
+        if not retenues:
+            retenues = _adzuna_retenues(_adzuna_page(mot, cles, "what"), mots)
+        resultats.extend(retenues)
     return resultats
 
 
@@ -777,7 +922,7 @@ def source_cadremploi(mots):
             o = offre(b["id"], b["titre"], b["entreprise"],
                       b["lieu"] or "Île-de-France", url, "Cadremploi",
                       date_iso(b["date"]), b["contrat"])
-            if offre_pertinente(o, mots):
+            if intitule_pertinent(o["titre"], mots):
                 vus.add(b["id"])
                 out.append(o)
     if bloque and not une_page_lue:
@@ -814,7 +959,7 @@ def source_village_justice(mots):
             ident = lien.rstrip("/").rsplit("/", 1)[-1] or titre
             o = offre(ident, titre, "Village de la Justice", "Île-de-France",
                       lien, "Village Justice", date, "", desc)
-            if offre_pertinente(o, mots, seuil=0.6):
+            if annonce_juridique_pertinente(titre, desc, mots):
                 out.append(o)
         return out
     except Exception:
@@ -833,7 +978,7 @@ def source_village_justice(mots):
             continue
         o = offre(ident, titre, "Village de la Justice", "Île-de-France",
                   lien.split("?")[0], "Village Justice")
-        if offre_pertinente(o, mots, seuil=0.6):
+        if annonce_juridique_pertinente(titre, "", mots):
             out.append(o)
     return out
 
@@ -887,7 +1032,7 @@ def source_carrieres_juridiques(mots):
             o = offre(ident, titre, entreprise,
                       lieu, f"https://www.carrieres-juridiques.com{chemin}",
                       "Carrières Juridiques", date, contrat)
-            if offre_pertinente(o, mots, seuil=0.6):
+            if annonce_juridique_pertinente(titre, "", mots):
                 out.append(o)
         if "page=" + str(page + 1) not in html:
             break
@@ -1135,6 +1280,9 @@ def lire_source(id_source, mots):
             raise erreurs[0]
     else:
         offres = _executer(conf, mots)
+
+    if conf["groupe"] in ("big_tech", "finance"):
+        offres = [o for o in offres if poste_tech_pertinent(o["titre"], conf["groupe"], mots)]
 
     vus, uniques = set(), []
     for o in offres:
