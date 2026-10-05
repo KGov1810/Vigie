@@ -377,7 +377,7 @@ function planDeLecture() {
   const plan = new Map();
   for (const s of secteurs) {
     for (const c of Object.values(etat.catalogue)) {
-      if (!(s.groupes || []).includes(c.groupe) || eteints.has(c.id)) continue;
+      if (!(s.groupes || []).includes(c.groupe) || eteints.has(c.id) || c.lien_seul) continue;
       if (!plan.has(c.id)) plan.set(c.id, new Set());
       (s.mots || []).forEach((m) => plan.get(c.id).add(m));
     }
@@ -577,15 +577,20 @@ function dessinerEtatsSites() {
   zone.hidden = !ouvert;
   if (!ouvert) return;
   const libelle = { ok: "", erreur: "indisponible", cle_manquante: "clé à ajouter" };
-  zone.innerHTML = liste
-    .sort(([, a], [, b]) => (a.etat === "erreur" ? -1 : 0) - (b.etat === "erreur" ? -1 : 0))
-    .map(([id, e]) => {
-      const nom = etat.catalogue[id]?.nom || id;
+  const tries = liste.sort(([, a], [, b]) => (a.etat === "erreur" ? -1 : 0) - (b.etat === "erreur" ? -1 : 0));
+  zone.innerHTML =
+    tries.map(([id, e]) => {
+      const c = etat.catalogue[id] || {};
       const suffixe = e.etat === "ok" ? `${e.n}` : libelle[e.etat] || e.etat;
-      return `<button class="etat ${e.etat}" type="button" data-detail="${echappe(e.detail)}">${echappe(nom)} : ${echappe(suffixe)}</button>`;
-    }).join("");
+      return `<button class="etat ${e.etat}" type="button" data-site="${echappe(id)}" data-detail="${echappe(e.detail)}"${c.lien ? ` aria-label="Ouvrir le site ${echappe(c.nom || id)}"` : ""}>${echappe(c.nom || id)} : ${echappe(suffixe)}${c.lien ? " ↗" : ""}</button>`;
+    }).join("") +
+    `<p class="aide">Touchez un site pour ouvrir sa page avec vos filtres.</p>` +
+    tries.filter(([, e]) => e.etat === "erreur" && e.detail)
+      .map(([id, e]) => `<p class="aide"><strong>${echappe(etat.catalogue[id]?.nom || id)}</strong> : ${echappe(e.detail)}</p>`).join("");
   $$(".etat", zone).forEach((b) => b.addEventListener("click", () => {
-    if (b.dataset.detail) toast(b.dataset.detail);
+    const lien = etat.catalogue[b.dataset.site]?.lien;
+    if (lien) window.open(lien, "_blank", "noopener");
+    else if (b.dataset.detail) toast(b.dataset.detail);
   }));
 }
 $("#etat-sites").addEventListener("click", (e) => {
@@ -910,7 +915,7 @@ function dessinerReglages() {
     return `<p class="famille-sites">${echappe(noms[g] || g)}</p><div>` + sites.map((c) => `
       <label class="site-ligne">
         <span>${echappe(c.nom)}
-          <span class="note">${c.cle_manquante ? "Clé à ajouter dans Vercel (voir le guide)" : c.mots ? "Recherche par vos mots-clés" : "Postes tech et quant à Paris, et vos mots-clés"}</span>
+          <span class="note">${c.lien_seul ? "Lien direct uniquement (lecture automatique interdite par le site)" : c.cle_manquante ? "Clé à ajouter dans Vercel (voir le guide)" : c.mots ? "Recherche par vos mots-clés" : "Postes tech et quant à Paris, et vos mots-clés"}</span>
         </span>
         <input class="interrupteur" type="checkbox" data-site="${c.id}" ${eteints.has(c.id) ? "" : "checked"}>
       </label>`).join("") + "</div>";

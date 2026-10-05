@@ -29,6 +29,7 @@ import unicodedata
 from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from email.utils import parsedate_to_datetime
+from html import unescape as _decoder_entites
 from http.server import BaseHTTPRequestHandler
 
 import requests
@@ -426,7 +427,8 @@ def source_ashby(slug, nom=None):
 
 
 def _nettoie_html(brut):
-    return re.sub(r"\s+", " ", re.sub(r"<[^>]+>", " ", brut or "")).strip()
+    """Retire les balises et décode les entités (« &amp; » → « & »)."""
+    return re.sub(r"\s+", " ", _decoder_entites(re.sub(r"<[^>]+>", " ", brut or ""))).strip()
 
 
 def source_eightfold(hote, domaine, nom):
@@ -490,38 +492,62 @@ def source_successfactors(hote, nom):
     return out
 
 
-def source_citadel(nom="Citadel"):
-    """Citadel — appel AJAX WordPress utilisé par leur page « Open Opportunities »."""
-    r = requests.post("https://www.citadel.com/wp-admin/admin-ajax.php",
-                      data={"action": "careers_listing_filter", "location-filter": "paris",
-                            "selected-job-sections": "388,389,387,390",
-                            "current_page": 1, "per_page": 50, "sort_order": "DESC"},
-                      headers={**NAVIGATEUR, "X-Requested-With": "XMLHttpRequest"},
-                      timeout=TIMEOUT)
-    r.raise_for_status()
-    texte = r.text
-    try:
-        d = r.json()
-        if isinstance(d, dict):
-            texte = d.get("html") or d.get("data") or json.dumps(d)
-    except Exception:
-        pass
-    out, vus = [], set()
-    for m in re.finditer(
-        r'href="((?:https://www\.citadel\.com)?/careers/details/[^"]+)"[^>]*>(.*?)</a>',
-        texte, re.S,
-    ):
+VILLES_CITADEL = ("Chicago", "Greenwich", "Houston", "Miami", "New York", "Dublin", "Hamburg", "London",
+                  "Paris", "Zurich", "Hong Kong", "Singapore", "Sydney", "Tokyo", "Toronto", "Gurugram",
+                  "Shanghai", "Boston", "San Francisco", "Seattle", "Washington", "Chicago")
+
+
+def _citadel_annonces(html):
+    """Chaque annonce est un lien /careers/details/<nom>/ contenant l'intitulé, les villes et « Apply Now »."""
+    annonces = []
+    for m in re.finditer(r'<a[^>]+href="((?:https://www\.citadel\.com)?/careers/details/[^"]+)"[^>]*>(.*?)</a>',
+                         html, re.S):
         url = m.group(1)
         if url.startswith("/"):
             url = "https://www.citadel.com" + url
-        titre = _nettoie_html(m.group(2))
-        ident = url.rstrip("/").rsplit("/", 1)[-1]
-        if not titre or ident in vus:
+        morceaux = [_nettoie_html(t) for t in re.split(r"<[^>]+>", m.group(2))]
+        morceaux = [t for t in morceaux if t and t.lower() != "apply now"]
+        if not morceaux:
             continue
-        vus.add(ident)
-        out.append(offre(ident, titre, nom, "Paris", url, "Site carrière"))
-    if not out:
-        raise RuntimeError("aucune offre lisible (structure du site modifiée ?)")
+        if len(morceaux) > 1:
+            titre, villes = morceaux[0], " ".join(morceaux[1:])
+        else:
+            # tout le texte d'un bloc : on détache la liste de villes en fin d'intitulé
+            texte = re.sub(r"\s*Apply Now\s*$", "", morceaux[0])
+            motif = "|".join(re.escape(v) for v in VILLES_CITADEL)
+            v = re.search(rf"\s((?:(?:{motif})(?:,\s*)?)+)$", texte)
+            titre, villes = (texte[:v.start()].strip(), v.group(1)) if v else (texte, "")
+        annonces.append((url, titre, villes))
+    return annonces
+
+
+def source_citadel(nom="Citadel"):
+    """Citadel — la liste « Open Opportunities » est rendue dans la page, 10 annonces par page :
+    on lit toutes les pages en parallèle et on garde celles situées à Paris."""
+    base = "https://www.citadel.com/careers/open-opportunities/"
+    r = requests.get(base, headers=NAVIGATEUR, timeout=TIMEOUT)
+    r.raise_for_status()
+    pages = [r.text]
+    derniere = max([int(n) for n in re.findall(r"/careers/open-opportunities/page/(\d+)/", r.text)] or [1])
+    if derniere > 1:
+        def lire(n):
+            rp = requests.get(f"{base}page/{n}/", headers=NAVIGATEUR, timeout=TIMEOUT)
+            rp.raise_for_status()
+            return rp.text
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for texte in pool.map(lire, range(2, min(derniere, 15) + 1)):
+                pages.append(texte)
+    out, vus, total = [], set(), 0
+    for html in pages:
+        for url, titre, villes in _citadel_annonces(html):
+            total += 1
+            ident = url.rstrip("/").rsplit("/", 1)[-1]
+            if ident in vus or "paris" not in villes.lower():
+                continue
+            vus.add(ident)
+            out.append(offre(ident, titre, nom, "Paris", url, "Site carrière"))
+    if not total:
+        raise RuntimeError("aucune annonce dans la page Citadel (structure modifiée) — utilisez le lien direct")
     return out
 
 
@@ -551,26 +577,65 @@ def source_google(url, nom="Google"):
     return out
 
 
+def _apple_postes(obj, trouves):
+    """Parcourt une structure JSON quelconque et récupère les postes (dictionnaires avec postingTitle)."""
+    if isinstance(obj, dict):
+        if obj.get("postingTitle") and (obj.get("positionId") or obj.get("id") or obj.get("reqId")):
+            trouves.append(obj)
+            return
+        for v in obj.values():
+            _apple_postes(v, trouves)
+    elif isinstance(obj, list):
+        for v in obj:
+            _apple_postes(v, trouves)
+
+
 def source_apple(url, nom="Apple"):
-    """Apple Jobs — les résultats sont embarqués dans la page (window.APP_STATE)."""
+    """Apple Jobs — les résultats sont dans la page, sous une forme qui a changé avec la refonte
+    du site : on essaie l'ancien window.APP_STATE, puis les données d'hydratation du nouveau site
+    (React Router), puis, en dernier recours, les liens /details/ affichés dans la page."""
     r = requests.get(url, headers=NAVIGATEUR, timeout=TIMEOUT)
     r.raise_for_status()
-    m = re.search(r"window\.APP_STATE\s*=\s*(\{.*?\})\s*;?\s*</script>", r.text, re.S)
-    if not m:
-        raise RuntimeError("structure de page inattendue (APP_STATE introuvable)")
-    etat_page = json.loads(m.group(1))
-    jobs = etat_page.get("searchResults") or []
-    out = []
-    for j in jobs:
-        ident = j.get("positionId") or j.get("id") or j.get("reqId")
-        titre = j.get("postingTitle") or j.get("title")
-        slug = j.get("transformedPostingTitle") or ""
-        if not (ident and titre):
+    html = r.text
+    postes = []
+    blocs = re.findall(r"window\.APP_STATE\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
+    for brut in re.findall(r'JSON\.parse\(\s*("(?:[^"\\]|\\.)*")\s*\)', html, re.S):
+        try:
+            blocs.append(json.loads(brut))
+        except Exception:
+            pass
+    blocs += re.findall(r"__staticRouterHydrationData\s*=\s*(\{.*?\})\s*;?\s*</script>", html, re.S)
+    for bloc in blocs:
+        if "postingTitle" not in bloc:
             continue
-        lieux = ", ".join(filter(None, (l.get("name", "") for l in (j.get("locations") or [])))) or "Paris"
-        url_o = f"https://jobs.apple.com/fr-fr/details/{ident}/{slug}".rstrip("/")
-        out.append(offre(ident, titre, nom, lieux, url_o, "Site carrière",
+        try:
+            _apple_postes(json.loads(bloc), postes)
+        except Exception:
+            pass
+    out, vus = [], set()
+    for j in postes:
+        ident = str(j.get("positionId") or j.get("id") or j.get("reqId"))
+        if ident in vus:
+            continue
+        vus.add(ident)
+        slug = j.get("transformedPostingTitle") or ""
+        lieux = ", ".join(filter(None, (l.get("name", "") for l in (j.get("locations") or []) if isinstance(l, dict)))) or "Paris"
+        out.append(offre(ident, j["postingTitle"], nom, lieux,
+                         f"https://jobs.apple.com/fr-fr/details/{ident}/{slug}".rstrip("/"), "Site carrière",
                          date_iso(j.get("postDateInGMT") or j.get("postingDate"))))
+    if out:
+        return out
+    # dernier recours : les liens d'offres rendus dans la page
+    for m in re.finditer(r'<a[^>]+href="(?:https://jobs\.apple\.com)?(/[a-z]{2}-[a-z]{2}/details/([0-9][0-9-]*)/[^"?#]*)[^"]*"[^>]*>(.*?)</a>',
+                         html, re.S):
+        chemin, ident, titre = m.group(1), m.group(2), _nettoie_html(m.group(3))
+        if not titre or ident in vus or len(titre) < 4:
+            continue
+        vus.add(ident)
+        out.append(offre(ident, titre, nom, "Paris", "https://jobs.apple.com" + chemin, "Site carrière"))
+    if not out:
+        raise RuntimeError(f"aucune offre lisible dans la page Apple ({len(html) // 1000} Ko reçus, "
+                           f"{'données intégrées présentes' if 'postingTitle' in html else 'sans données intégrées'})")
     return out
 
 
@@ -613,26 +678,77 @@ def source_meta(url, nom="Meta"):
     return out
 
 
-def source_gs(nom="Goldman Sachs"):
-    """Goldman Sachs (higher.gs.com) — API interne : meilleur effort."""
-    r = requests.get("https://higher.gs.com/api/search",
-                     params={"LOCATION": "Paris", "page": 1, "sort": "RELEVANCE", "limit": 100},
-                     headers={**NAVIGATEUR, "Accept": "application/json"}, timeout=TIMEOUT)
+GS_API = "https://api-higher.gs.com/gateway/api/v1/graphql"
+GS_REQUETE = """query GetRoles($searchQueryInput: RoleSearchQueryInput!) {
+  roleSearch(searchQueryInput: $searchQueryInput) {
+    totalCount
+    items { roleId jobTitle division locations { primary state country city } }
+  }
+}"""
+GS_EXPERIENCES = ["PROFESSIONAL", "EARLY_CAREER", "CAMPUS"]
+
+
+def _gs_page(numero, filtres, experiences, taille=100):
+    corps = {
+        "operationName": "GetRoles",
+        "query": GS_REQUETE,
+        "variables": {"searchQueryInput": {
+            "page": {"pageSize": taille, "pageNumber": numero},
+            "sort": {"sortStrategy": "RELEVANCE", "sortOrder": "DESC"},
+            "filters": filtres, "experiences": experiences, "searchTerm": "",
+        }},
+    }
+    r = requests.post(GS_API, json=corps, timeout=TIMEOUT, headers={
+        **NAVIGATEUR, "Content-Type": "application/json", "Accept": "application/json",
+        "Origin": "https://higher.gs.com", "Referer": "https://higher.gs.com/"})
     r.raise_for_status()
     d = r.json()
-    jobs = d.get("jobs") or d.get("results") or d.get("items") or d.get("data") or []
-    out = []
-    for j in jobs:
-        titre = j.get("jobTitle") or j.get("title") or j.get("name")
-        ident = j.get("jobId") or j.get("id") or titre
-        lieu = j.get("location") or j.get("city") or "Paris"
-        if not titre or not lieu_en_idf(str(lieu), strict=True):
+    if d.get("errors"):
+        raise RuntimeError("API Goldman Sachs : " + str(d["errors"][0].get("message", ""))[:150])
+    return d["data"]["roleSearch"]
+
+
+def _gs_tout(filtres, experiences, max_pages=12):
+    premiere = _gs_page(0, filtres, experiences)
+    items = list(premiere.get("items") or [])
+    pages = min(max_pages, -(-int(premiere.get("totalCount") or 0) // 100))
+    if pages > 1:
+        with ThreadPoolExecutor(max_workers=6) as pool:
+            for res in pool.map(lambda n: _gs_page(n, filtres, experiences), range(1, pages)):
+                items.extend(res.get("items") or [])
+    return int(premiere.get("totalCount") or 0), items
+
+
+def source_gs(nom="Goldman Sachs"):
+    """Goldman Sachs — API GraphQL publique (sans compte) que la page higher.gs.com appelle
+    elle-même. On demande les postes en France ; si ce filtre ne renvoie rien (libellé de
+    pays différent), on lit toute la liste et on filtre l'Île-de-France ici."""
+    france = [{"filterCategoryType": "LOCATION", "filters": [{"filter": "France", "subFilters": []}]}]
+    try:
+        total, items = _gs_tout(france, GS_EXPERIENCES)
+        if not total:
+            total, items = _gs_tout([], GS_EXPERIENCES)
+    except RuntimeError as e:
+        # une catégorie d'expérience refusée par l'API : on interroge chacune séparément
+        items, erreurs = [], []
+        for exp in GS_EXPERIENCES:
+            try:
+                items += _gs_tout(france, [exp])[1]
+            except Exception as e2:  # noqa: BLE001
+                erreurs.append(e2)
+        if len(erreurs) == len(GS_EXPERIENCES):
+            raise e
+    out, vus = [], set()
+    for it in items:
+        lieux = it.get("locations") or []
+        lieu = next((l for l in lieux if lieu_en_idf(f"{l.get('city') or ''} {l.get('state') or ''}", strict=True)), None)
+        titre, ident = it.get("jobTitle"), str(it.get("roleId") or "")
+        if not (lieu and titre and ident) or ident in vus:
             continue
-        out.append(offre(ident, titre, nom, str(lieu),
-                         f"https://higher.gs.com/roles/{ident}", "Site carrière",
-                         date_iso(j.get("postedDate") or j.get("createdDate"))))
-    if not out:
-        raise RuntimeError("aucune offre lisible — utilisez le lien direct")
+        vus.add(ident)
+        numero = ident.split("_")[0]
+        out.append(offre(numero, titre, nom, lieu.get("city") or "Paris",
+                         f"https://higher.gs.com/roles/{numero}", "Site carrière"))
     return out
 
 
@@ -1084,7 +1200,8 @@ CATALOGUE = {
     "google": {"nom": "Google", "groupe": "big_tech", "type": "google",
                "url": "https://www.google.com/about/careers/applications/jobs/results?hl=en_US&location=Paris%2C%20France&degree=MASTERS&employment_type=FULL_TIME",
                "lien": "https://www.google.com/about/careers/applications/jobs/results?hl=en_US&location=Paris%2C%20France&degree=MASTERS&employment_type=FULL_TIME"},
-    "meta": {"nom": "Meta", "groupe": "big_tech", "type": "meta",
+    # Meta interdit la collecte automatisée sur ses sites : lien direct uniquement, jamais lu par le relais.
+    "meta": {"nom": "Meta", "groupe": "big_tech", "type": "meta", "lien_seul": True,
              "url": "https://www.metacareers.com/jobsearch/?teams[0]=Artificial%20Intelligence&offices[0]=Paris%2C%20France&roles[0]=Full%20time%20employment",
              "lien": "https://www.metacareers.com/jobsearch/?teams[0]=Artificial%20Intelligence&offices[0]=Paris%2C%20France&roles[0]=Full%20time%20employment"},
     "apple": {"nom": "Apple", "groupe": "big_tech", "type": "apple",
@@ -1107,9 +1224,6 @@ CATALOGUE = {
                     "lien": "https://www.squarepoint-capital.com/open-opportunities?loc=14636"},
     "citadel": {"nom": "Citadel", "groupe": "finance", "type": "citadel",
                 "lien": "https://www.citadel.com/careers/open-opportunities?location-filter=paris&selected-job-sections=388,389,387,390&current_page=1&sort_order=DESC&per_page=10&action=careers_listing_filter"},
-    "tikehau": {"nom": "Tikehau Capital", "groupe": "finance", "type": "talentview",
-                "hote": "https://tikehau-capital-career.talentview.io",
-                "lien": "https://tikehau-capital-career.talentview.io/en?city=Paris&iso_country=FR&place=Paris,+France&distance=50&job_types=Permanent+contract"},
     "jpmorgan": {"nom": "JPMorgan", "groupe": "finance", "type": "oracle",
                  "hote": "https://jpmc.fa.oraclecloud.com", "site": "CX_1001", "lieu_id": "300000036802490",
                  "lien": "https://jpmc.fa.oraclecloud.com/hcmUI/CandidateExperience/en/sites/CX_1001/jobs?location=Paris%2C+France&locationId=300000036802490&locationLevel=state&mode=location"},
@@ -1164,6 +1278,7 @@ def firebase_config():
 def catalogue_public():
     return [
         {"id": cle, "nom": c["nom"], "groupe": c["groupe"], "mots": bool(c.get("mots")),
+         "lien_seul": bool(c.get("lien_seul")),
          "lien": c.get("lien"), "cle_manquante": bool(c.get("cle")) and not cle_disponible(c["cle"])}
         for cle, c in CATALOGUE.items()
     ]
@@ -1262,6 +1377,8 @@ def lire_source(id_source, mots):
     conf = CATALOGUE.get(id_source)
     if not conf:
         return {"etat": "erreur", "offres": [], "detail": "site inconnu"}
+    if conf.get("lien_seul"):
+        return {"etat": "erreur", "offres": [], "detail": "site consultable uniquement par son lien direct"}
     if conf.get("cle") and not cle_disponible(conf["cle"]):
         return {"etat": "cle_manquante", "offres": [], "detail": "clé à ajouter dans Vercel (voir le guide)"}
     if conf.get("mots") and not mots:
