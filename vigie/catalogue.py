@@ -31,8 +31,11 @@ CATALOGUE = {
                "lien": "https://openai.com/careers/search/?l=a875cd3f-88a3-4d2d-9e24-6e985f2c86d5"},
     "anthropic": {"nom": "Anthropic", "groupe": "big_tech", "type": "greenhouse", "slug": "anthropic",
                   "lien": "https://www.anthropic.com/careers/jobs?office=4045847008"},
-    "mistral": {"nom": "Mistral AI", "groupe": "big_tech", "type": "lever", "slug": "mistral",
-                "lien": "https://jobs.lever.co/mistral?location=Paris&commitment=Full-time"},
+    # Mistral recrute sur Ashby : deux départements choisis, à Paris, en CDI (filtres de la page Ashby)
+    "mistral": {"nom": "Mistral AI", "groupe": "big_tech", "type": "ashby_filtre", "organisation": "mistral.ai",
+                "departements": ["0e254708-ce04-4bd7-8fbe-c6b9a45e0f16", "cdcd26c0-0c1e-4aff-91f7-5f6306b726b3"],
+                "lieu_id": "bb6ddf2e-f6bf-4259-a8ca-09d5e2c51f7b", "contrat": "FullTime",
+                "lien": "https://jobs.ashbyhq.com/mistral.ai?employmentType=FullTime&locationId=bb6ddf2e-f6bf-4259-a8ca-09d5e2c51f7b"},
     "google": {"nom": "Google", "groupe": "big_tech", "type": "google",
                "url": "https://www.google.com/about/careers/applications/jobs/results?hl=en_US&location=Paris%2C%20France&degree=MASTERS&employment_type=FULL_TIME",
                "lien": "https://www.google.com/about/careers/applications/jobs/results?hl=en_US&location=Paris%2C%20France&degree=MASTERS&employment_type=FULL_TIME"},

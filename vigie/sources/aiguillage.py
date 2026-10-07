@@ -4,7 +4,7 @@ from .big_tech import source_apple, source_google
 from .emploi import source_adzuna, source_cadremploi, source_france_travail
 from .finance import source_bofa, source_citadel, source_citi, source_gs
 from .juridique import source_carrieres_juridiques, source_village_justice
-from .plateformes import (source_ashby, source_eightfold, source_greenhouse, source_lever,
+from .plateformes import (source_ashby, source_ashby_filtre, source_eightfold, source_greenhouse, source_lever,
                           source_oracle, source_successfactors)
 from .startups import source_wttj
 
@@ -21,6 +21,8 @@ LECTEURS = {
     "greenhouse": lambda conf, mots: source_greenhouse(conf["slug"], conf["nom"]),
     "lever": lambda conf, mots: source_lever(conf["slug"], conf["nom"]),
     "ashby": lambda conf, mots: source_ashby(conf["slug"], conf["nom"]),
+    "ashby_filtre": lambda conf, mots: source_ashby_filtre(conf["organisation"], conf["departements"],
+                                                          conf["lieu_id"], conf["contrat"], conf["nom"]),
     "eightfold": lambda conf, mots: source_eightfold(conf["hote"], conf["domaine"], conf["nom"]),
     "oracle": lambda conf, mots: source_oracle(conf["hote"], conf["site"], conf["lieu_id"], conf["nom"]),
     "successfactors": lambda conf, mots: source_successfactors(conf["hote"], conf["nom"]),

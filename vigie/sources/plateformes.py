@@ -1,7 +1,9 @@
 """Plateformes de recrutement utilisées par plusieurs entreprises : Greenhouse, Lever, Ashby, Eightfold, Oracle, SuccessFactors."""
-import requests
 import re
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
+
+import requests
 
 from ..communs import NAVIGATEUR, TIMEOUT, UA, _nettoie_html, date_iso, lieu_en_idf, offre
 
@@ -48,6 +50,70 @@ def source_ashby(slug, nom=None):
         out.append(offre(j.get("id"), j.get("title"), nom or slug.capitalize(), lieu,
                          j.get("jobUrl") or j.get("applyUrl"), "Site carrière",
                          date_iso(j.get("publishedAt"))))
+    return out
+
+
+ASHBY_GRAPHQL = "https://jobs.ashbyhq.com/api/non-user-graphql?op=ApiJobBoardWithTeams"
+ASHBY_REQUETE = """query ApiJobBoardWithTeams($organizationHostedJobsPageName: String!) {
+  jobBoard: jobBoardWithTeams(organizationHostedJobsPageName: $organizationHostedJobsPageName) {
+    teams { id name parentTeamId }
+    jobPostings { id title teamId locationId locationName employmentType
+                  secondaryLocations { locationId locationName } }
+  }
+}"""
+
+
+def _ashby_sous_equipes(equipes, racines):
+    """Les départements choisis et toutes leurs sous-équipes, comme sur la page Ashby."""
+    retenues = set(racines)
+    ajout = True
+    while ajout:
+        ajout = False
+        for e in equipes:
+            if e.get("parentTeamId") in retenues and e["id"] not in retenues:
+                retenues.add(e["id"])
+                ajout = True
+    return retenues
+
+
+def _ashby_dates(organisation):
+    """Dates de publication, par identifiant d'offre (interface publique d'Ashby ; facultatif)."""
+    try:
+        r = requests.get(f"https://api.ashbyhq.com/posting-api/job-board/{organisation}", headers=UA, timeout=TIMEOUT)
+        r.raise_for_status()
+        return {(j.get("jobUrl") or "").rstrip("/").rsplit("/", 1)[-1]: j.get("publishedAt") for j in r.json().get("jobs", [])}
+    except Exception:  # noqa: BLE001
+        return {}
+
+
+def source_ashby_filtre(organisation, departements, lieu_id, contrat, nom):
+    """Ashby avec les filtres de la page (département, lieu, type de contrat), appliqués par leurs
+    identifiants grâce à la requête publique que la page elle-même utilise. Si elle échoue, on se
+    rabat sur la lecture classique : Île-de-France, sans filtre de département ni de contrat."""
+    with ThreadPoolExecutor(max_workers=2) as pool:
+        dates_futur = pool.submit(_ashby_dates, organisation)
+        try:
+            r = requests.post(ASHBY_GRAPHQL, timeout=TIMEOUT, headers={**UA, "Content-Type": "application/json"},
+                              json={"operationName": "ApiJobBoardWithTeams", "query": ASHBY_REQUETE,
+                                    "variables": {"organizationHostedJobsPageName": organisation}})
+            r.raise_for_status()
+            tableau = (r.json().get("data") or {}).get("jobBoard")
+            if not tableau:
+                raise RuntimeError("réponse Ashby inattendue")
+        except Exception:  # noqa: BLE001
+            return source_ashby(organisation, nom)
+        dates = dates_futur.result()
+    equipes = _ashby_sous_equipes(tableau.get("teams") or [], departements)
+    out = []
+    for j in tableau.get("jobPostings") or []:
+        lieux = [(j.get("locationId"), j.get("locationName"))] + \
+                [(s.get("locationId"), s.get("locationName")) for s in j.get("secondaryLocations") or []]
+        lieu = next((nom_lieu for id_lieu, nom_lieu in lieux if id_lieu == lieu_id), None)
+        if j.get("teamId") not in equipes or not lieu or (contrat and j.get("employmentType") != contrat):
+            continue
+        out.append(offre(j["id"], j.get("title"), nom, lieu or "Paris",
+                         f"https://jobs.ashbyhq.com/{organisation}/{j['id']}", "Site carrière",
+                         date_iso(dates.get(j["id"]))))
     return out
 
 
