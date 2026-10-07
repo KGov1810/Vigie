@@ -2,8 +2,20 @@
 // Fichiers de l'app : réseau d'abord (toujours la dernière version), copie locale en secours.
 // Outils Firebase et polices : copie locale d'abord (ils ne changent pas).
 // Le relais (/api/) n'est jamais mis en cache : les offres restent en temps réel.
-const CACHE = "vigie-v1";
-const COQUILLE = ["/", "/index.html", "/styles.css", "/app.js", "/firebase.js", "/manifest.webmanifest", "/icone-192.png"];
+const CACHE = "vigie-v2";
+const COQUILLE = [
+  "/", "/index.html", "/styles.css", "/app.js", "/firebase.js", "/manifest.webmanifest", "/icone-192.png",
+  "/js/actualisation.js",
+  "/js/candidatures.js",
+  "/js/compte.js",
+  "/js/constantes.js",
+  "/js/etat.js",
+  "/js/favoris.js",
+  "/js/navigation.js",
+  "/js/offres.js",
+  "/js/outils.js",
+  "/js/reglages.js",
+];
 
 self.addEventListener("install", (e) => {
   e.waitUntil(caches.open(CACHE).then((c) => c.addAll(COQUILLE)).then(() => self.skipWaiting()));

@@ -134,10 +134,34 @@ Si je vous envoie une nouvelle version :
 
 Vercel remet l'application en ligne automatiquement en une minute environ.
 
+## Organisation du code
+
+```
+api/relais.py          point d'entrée du relais (Vercel), quelques lignes
+vigie/                 moteur du relais, en Python
+  config.py            variables d'environnement Vercel
+  auth.py              vérification des comptes
+  catalogue.py         liste des sites lus et leurs liens directs
+  lecture.py           lecture d'un site, tri, dédoublonnage
+  pertinence.py        filtres par mots-clés et par métier
+  communs.py           outils partagés (dates, lieux, format d'une offre)
+  sources/             lecture des sites, par famille : emploi, juridique, startups,
+                       plateformes de recrutement, big_tech, finance
+public/                application du téléphone
+  index.html, styles.css, app.js (point d'entrée), firebase.js
+  js/                  un fichier par rôle : compte, navigation, actualisation,
+                       offres, favoris, candidatures, réglages, outils, état, constantes
+```
+
+Pour ajouter un site : une entrée dans `vigie/catalogue.py`, et, s'il utilise une plateforme déjà connue (Greenhouse, Lever, Ashby…), rien d'autre.
+
 ## Questions fréquentes
 
 **Un site affiche « indisponible ».**
-Certains sites bloquent les lectures automatiques, notamment Meta, Goldman Sachs, Tikehau et probablement Cadremploi. D'autres changent parfois leur page. Utilisez alors son lien dans **Ouvrir les sites directement**. Si un site qui fonctionnait tombe en panne durablement, envoyez-moi le message affiché en le touchant.
+Ouvrez la ligne « … sites ont répondu » : la raison de chaque panne y est écrite en clair, et toucher un site ouvre sa page avec vos filtres. Certains sites bloquent les lectures automatiques ou changent leur page de temps en temps (probablement Cadremploi). Si un site qui fonctionnait tombe en panne durablement, envoyez-moi la raison affichée.
+
+**Pourquoi Meta n'est-il jamais lu ?**
+Meta interdit la collecte automatisée sur ses sites. Vigie l'affiche donc uniquement comme lien direct, avec vos filtres, dans « Ouvrir les sites directement ».
 
 **L'écran « Vigie n'est pas encore reliée à Firebase » s'affiche.**
 La variable `FIREBASE_CONFIG` manque ou a été mal collée dans Vercel. Corrigez-la, puis relancez le déploiement avec **Redeploy**.

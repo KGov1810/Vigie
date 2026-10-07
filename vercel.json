@@ -3,6 +3,6 @@
   "outputDirectory": "public",
   "regions": ["cdg1"],
   "functions": {
-    "api/relais.py": { "maxDuration": 30 }
+    "api/relais.py": { "maxDuration": 30, "includeFiles": "vigie/**" }
   }
 }
